@@ -22,52 +22,6 @@
     z-index:1;
   }
 
-  /* ---------- Start screen ---------- */
-  #startScreen{
-    position:fixed; inset:0; z-index:10;
-    display:flex; flex-direction:column; align-items:center; justify-content:center;
-    background:radial-gradient(ellipse at center, #050b12 0%, #000000 75%);
-    transition:opacity 1.1s ease, visibility 1.1s ease;
-  }
-  #startScreen.hidden{ opacity:0; visibility:hidden; pointer-events:none; }
-  .brand-eyebrow{
-    font-family:'Consolas','SFMono-Regular',monospace;
-    letter-spacing:4px; text-transform:uppercase;
-    font-size:12px; color:rgba(111,233,255,0.65); margin-bottom:14px;
-  }
-  .brand-title{
-    font-family:'Consolas','SFMono-Regular',monospace;
-    letter-spacing:6px; text-transform:uppercase;
-    font-size:clamp(28px,5vw,54px); color:var(--white); margin:0;
-    text-shadow:0 0 30px rgba(63,169,255,0.45);
-  }
-  .brand-sub{
-    font-family:'Consolas',monospace; font-size:12px; letter-spacing:2px;
-    text-transform:uppercase; color:rgba(234,246,255,0.45); margin-top:10px;
-  }
-  .start-btn{
-    margin-top:52px;
-    background:rgba(63,169,255,0.08);
-    border:1px solid rgba(111,233,255,0.55);
-    color:var(--cyan);
-    font-family:'Consolas',monospace;
-    font-size:14px; letter-spacing:3px; text-transform:uppercase;
-    padding:16px 46px;
-    cursor:pointer;
-    transition:background 0.2s, box-shadow 0.2s, transform 0.2s;
-    animation:pulseGlow 2.6s ease-in-out infinite;
-  }
-  .start-btn:hover{ background:rgba(63,169,255,0.2); transform:translateY(-1px); }
-  @keyframes pulseGlow{
-    0%,100%{ box-shadow:0 0 10px rgba(111,233,255,0.15); }
-    50%{ box-shadow:0 0 26px rgba(111,233,255,0.55); }
-  }
-  .corner{ position:absolute; width:34px; height:34px; border:1.5px solid rgba(111,233,255,0.4); }
-  .tl{ top:22px; left:22px; border-right:none; border-bottom:none; }
-  .tr{ top:22px; right:22px; border-left:none; border-bottom:none; }
-  .bl{ bottom:22px; left:22px; border-right:none; border-top:none; }
-  .br{ bottom:22px; right:22px; border-left:none; border-top:none; }
-
   /* ---------- In-scan HUD ---------- */
   #sceneHud{
     position:fixed; inset:0; z-index:5; pointer-events:none;
@@ -87,14 +41,6 @@
     font-family:'Consolas',monospace; font-size:11px; letter-spacing:1px;
     color:rgba(234,246,255,0.6); text-transform:uppercase;
   }
-  #skipHint{
-    position:absolute; bottom:34px; right:70px;
-    font-family:'Consolas',monospace; font-size:11px; letter-spacing:1px;
-    color:rgba(234,246,255,0.35); text-transform:uppercase;
-    transition:opacity 0.6s ease;
-  }
-  #skipHint.hidden{ opacity:0; }
-
   /* ---------- Hidden video element: pure texture source for the particle-mosaic
      video reveal — the particles themselves display the video, so this stays
      invisible (kept in-layout rather than display:none, since some browsers
@@ -118,18 +64,6 @@
     <small id="labelSmall">Aerial reconstruction · point cloud</small>
   </div>
   <div class="particle-readout">Particles: <span id="particleCount">0</span></div>
-  <div id="skipHint">Tap anywhere to skip</div>
-</div>
-
-<div id="startScreen">
-  <div class="corner tl"></div>
-  <div class="corner tr"></div>
-  <div class="corner bl"></div>
-  <div class="corner br"></div>
-  <div class="brand-eyebrow">Exhibition Preview</div>
-  <h1 class="brand-title">RoboNexus</h1>
-  <div class="brand-sub">Digital twin · point cloud site scan</div>
-  <button class="start-btn" id="startBtn">Start</button>
 </div>
 
 <script src="vendor/three.min.js"></script>
@@ -168,7 +102,7 @@
   var VIDEO_PLANE_WIDTH = 24, VIDEO_PLANE_HEIGHT = 13.5; // world units, matches the video's 16:9 aspect
   var VIDEO_PLANE_CENTER_Y = 7, VIDEO_PLANE_Z = 0;
   var VIDEO_VIEW_DIST = 20; // camera distance from the plane once settled facing it
-  var VIDEO_POINT_SIZE = 0.16; // uniform per-particle size once forming the video (original aSize values are architectural — wildly uneven for buildings vs. roads, which reads as blotchy/unclear as a pixel grid)
+  var VIDEO_POINT_SIZE = 0.145; // uniform per-particle size once forming the video (original aSize values are architectural — wildly uneven for buildings vs. roads, which reads as blotchy/unclear as a pixel grid); slightly smaller than the gap-covering minimum for sharper, more resolved detail
 
   var POINT_SIZE_SCALE = 620; // px-world constant driving on-screen point size (was 260 — bumped so the cloud reads as dense/solid rather than sparse)
 
@@ -242,6 +176,30 @@
     ctx.ellipse(32,32,28,28,0,0,Math.PI*2);
     ctx.fill();
     ctx.restore();
+    var tex = new THREE.CanvasTexture(c);
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    return tex;
+  }
+
+  // A plain round, soft-edged dot — full coverage in every direction, unlike
+  // the elongated comet-streak sprite above (which is squashed thin on one
+  // axis for the wind-blown look; at grid scale during the video mosaic that
+  // thinness leaves gaps between rows of particles, visible as horizontal
+  // lines across the image).
+  function makeRoundSprite(){
+    var c = document.createElement('canvas');
+    c.width = c.height = 64;
+    var ctx = c.getContext('2d');
+    var g = ctx.createRadialGradient(32,32,0,32,32,30);
+    g.addColorStop(0.0, 'rgba(255,255,255,1)');
+    g.addColorStop(0.85, 'rgba(255,255,255,1)');
+    g.addColorStop(1.0, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(32,32,30,0,Math.PI*2);
+    ctx.fill();
     var tex = new THREE.CanvasTexture(c);
     tex.generateMipmaps = false;
     tex.minFilter = THREE.LinearFilter;
@@ -349,7 +307,7 @@
     '    float vt = clamp((uTime - uVideoTrigger - videoDelay) / ' + VIDEO_FORM_DUR.toFixed(2) + ', 0.0, 1.0);',
     '    videoBlend = 1.0 - pow(1.0 - vt, 3.0);',
     '    basePos = mix(basePos, videoPlanePos, videoBlend);',
-    '    intensity = mix(intensity, 0.6, videoBlend);',
+    '    intensity = mix(intensity, 0.34, videoBlend);',
     '  }',
     '  vVideoBlend = videoBlend;',
     '  vec2 windDir = normalize(vec2(1.0, 0.4));',
@@ -385,6 +343,7 @@
 
   var fragmentShader = [
     'uniform sampler2D uMap;',
+    'uniform sampler2D uRoundMap;',
     'uniform sampler2D uVideoMap;',
     'varying vec3 vColor;',
     'varying float vIntensity;',
@@ -397,13 +356,15 @@
     '  float sa = sin(-vStreakAngle);',
     '  vec2 rotated = vec2(ca*centered.x - sa*centered.y, sa*centered.x + ca*centered.y) + vec2(0.5);',
     '  vec4 tex = texture2D(uMap, rotated);',
+    '  vec4 texRound = texture2D(uRoundMap, gl_PointCoord);',
+    '  float spriteAlpha = mix(tex.r, texRound.r, vVideoBlend);',
     '  vec3 videoColor = texture2D(uVideoMap, vVideoUV).rgb;',
-    '  float videoLuma = dot(videoColor, vec3(0.299, 0.587, 0.114));',
-    '  videoColor = clamp(mix(vec3(videoLuma), videoColor, 1.7), 0.0, 1.0);',
+    '  videoColor = clamp((videoColor - 0.5) * 1.5 + 0.5, 0.0, 1.0);',
+    '  videoColor *= vec3(0.9, 0.97, 1.1);',
     '  vec3 finalColor = mix(vColor, videoColor, vVideoBlend);',
     '  float i = vIntensity;',
-    '  gl_FragColor = vec4(finalColor * i, tex.r * i);',
-    '  gl_FragColor.rgb *= tex.r;',
+    '  gl_FragColor = vec4(finalColor * i, spriteAlpha * i);',
+    '  gl_FragColor.rgb *= spriteAlpha;',
     '}'
   ].join('\n');
 
@@ -437,6 +398,7 @@
     var mat = new THREE.ShaderMaterial({
       uniforms:{
         uMap:{ value: makeSprite() },
+        uRoundMap:{ value: makeRoundSprite() },
         uVideoMap:{ value: videoTexture },
         uTime:{ value: 0 },
         uFormTrigger:{ value: -1 },
@@ -519,7 +481,6 @@
     if(formTriggerTime !== null) return;
     formTriggerTime = t;
     phase = 'formed';
-    document.getElementById('skipHint').classList.add('hidden');
   }
 
   function tryStartReveal(t){
@@ -644,14 +605,11 @@
   }
 
   // ==========================================================================
-  // Entry point
+  // Entry point — starts automatically on page load, no click needed
   // ==========================================================================
-  document.getElementById('startBtn').addEventListener('click', function(){
-    document.getElementById('startScreen').classList.add('hidden');
-    buildSite().then(function(){
-      initScene();
-      beginForming();
-    });
+  buildSite().then(function(){
+    initScene();
+    beginForming();
   });
 })();
 </script>
