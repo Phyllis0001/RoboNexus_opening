@@ -36,11 +36,6 @@
   #sceneHud .label-top small{
     display:block; font-size:10px; color:rgba(234,246,255,0.5); letter-spacing:1px; margin-top:4px;
   }
-  #sceneHud .particle-readout{
-    position:absolute; bottom:34px; left:70px;
-    font-family:'Consolas',monospace; font-size:11px; letter-spacing:1px;
-    color:rgba(234,246,255,0.6); text-transform:uppercase;
-  }
   #skipVoiceover{
     position:absolute; bottom:34px; right:70px; pointer-events:auto;
     font-family:'Consolas',monospace; font-size:11px; letter-spacing:1px;
@@ -70,14 +65,13 @@
 </video>
 
 <audio id="narration" preload="auto">
-  <source src="narration.wav" type="audio/wav">
+  <source src="narration.mp3" type="audio/mpeg">
 </audio>
 
 <div id="sceneHud">
   <div class="label-top">SITE SCAN // DIGITAL TWIN
     <small id="labelSmall">Aerial reconstruction · point cloud</small>
   </div>
-  <div class="particle-readout">Particles: <span id="particleCount">0</span></div>
   <button id="skipVoiceover">Skip Voiceover</button>
 </div>
 
@@ -135,7 +129,6 @@
     return fetch(DATA_URL).then(function(resp){ return resp.arrayBuffer(); }).then(function(buf){
       particleData = new Float32Array(buf);
       particleCount = particleData.length / 12;
-      document.getElementById('particleCount').textContent = particleCount.toLocaleString();
 
       // one-time scan (not per-frame) to find the site's plan radius, so the
       // ambient scan ring can be sized to the site without hardcoding it.
@@ -646,30 +639,53 @@
     var air = ctx.createBiquadFilter();
     air.type = 'highshelf';
     air.frequency.value = 6500;
-    air.gain.value = 8;
+    air.gain.value = 7;
+
+    // Heavier, slower compression than before — smooths out the natural
+    // dynamic range into a calm, even, "composed AI assistant" delivery
+    // (JARVIS-like poise) rather than an expressive human read.
     var compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.value = -20;
-    compressor.knee.value = 18;
-    compressor.ratio.value = 3;
-    compressor.attack.value = 0.006;
-    compressor.release.value = 0.2;
+    compressor.threshold.value = -26;
+    compressor.knee.value = 10;
+    compressor.ratio.value = 6;
+    compressor.attack.value = 0.008;
+    compressor.release.value = 0.35;
     var boldness = ctx.createGain();
     boldness.gain.value = 1.15;
+
+    // A short, subtle slap-back delay — cheap studio "polish"/ambience
+    // (no impulse-response file needed) that keeps it dry and precise
+    // rather than sounding like a plain unproduced take.
+    var delay = ctx.createDelay();
+    delay.delayTime.value = 0.032;
+    var feedback = ctx.createGain();
+    feedback.gain.value = 0.12;
+    var wetMix = ctx.createGain();
+    wetMix.gain.value = 0.16;
+    delay.connect(feedback);
+    feedback.connect(delay);
+    delay.connect(wetMix);
+
     source.connect(bass);
     bass.connect(presence);
     presence.connect(air);
     air.connect(compressor);
+    air.connect(delay);
     compressor.connect(boldness);
+    wetMix.connect(boldness);
     boldness.connect(ctx.destination);
     return ctx;
   }
 
   function startNarration(){
     var audio = document.getElementById('narration');
+    // This is now a real male voiceover (ElevenLabs "Jon"), so the pitch-shift
+    // hack used to fake a deeper voice from the old female take is gone —
+    // pitch stays natural, with just a gentle pace ease for a measured feel.
     audio.preservesPitch = true;
     audio.mozPreservesPitch = true;
     audio.webkitPreservesPitch = true;
-    audio.playbackRate = 0.85; // slows the pace without lowering pitch, keeping the voice clearly female
+    audio.playbackRate = 0.95;
     var audioCtx = setupNarrationFilters(audio);
     var skipBtn = document.getElementById('skipVoiceover');
 
