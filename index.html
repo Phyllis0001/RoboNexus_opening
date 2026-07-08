@@ -41,6 +41,16 @@
     font-family:'Consolas',monospace; font-size:11px; letter-spacing:1px;
     color:rgba(234,246,255,0.6); text-transform:uppercase;
   }
+  #skipVoiceover{
+    position:absolute; bottom:34px; right:70px; pointer-events:auto;
+    font-family:'Consolas',monospace; font-size:11px; letter-spacing:1px;
+    text-transform:uppercase; color:rgba(234,246,255,0.75);
+    background:rgba(63,169,255,0.06); border:1px solid rgba(111,233,255,0.4);
+    padding:8px 14px; cursor:pointer;
+    opacity:0; transition:opacity 0.5s ease, background 0.2s ease;
+  }
+  #skipVoiceover.visible{ opacity:1; }
+  #skipVoiceover:hover{ background:rgba(63,169,255,0.18); }
   /* ---------- Hidden video element: pure texture source for the particle-mosaic
      video reveal — the particles themselves display the video, so this stays
      invisible (kept in-layout rather than display:none, since some browsers
@@ -59,11 +69,16 @@
   <source src="rotation.mp4" type="video/mp4">
 </video>
 
+<audio id="narration" preload="auto">
+  <source src="narration.wav" type="audio/wav">
+</audio>
+
 <div id="sceneHud">
   <div class="label-top">SITE SCAN // DIGITAL TWIN
     <small id="labelSmall">Aerial reconstruction · point cloud</small>
   </div>
   <div class="particle-readout">Particles: <span id="particleCount">0</span></div>
+  <button id="skipVoiceover">Skip Voiceover</button>
 </div>
 
 <script src="vendor/three.min.js"></script>
@@ -605,11 +620,90 @@
   }
 
   // ==========================================================================
+  // Voiceover narration — plays once on load alongside the visuals. Browsers
+  // block unmuted audio autoplay without a prior user gesture, so if the
+  // initial play() is rejected, fall back to starting it on the first
+  // click/tap/keypress anywhere on the page instead.
+  //
+  // Routed through a couple of EQ filters (Web Audio API) to add crispness —
+  // a presence boost around 3.5kHz plus an air/brightness boost above 7kHz —
+  // since the raw take was recorded sounding a bit too smooth/soft.
+  // ==========================================================================
+  function setupNarrationFilters(audio){
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx) return null;
+    var ctx = new Ctx();
+    var source = ctx.createMediaElementSource(audio);
+    var bass = ctx.createBiquadFilter();
+    bass.type = 'lowshelf';
+    bass.frequency.value = 180;
+    bass.gain.value = 1;
+    var presence = ctx.createBiquadFilter();
+    presence.type = 'peaking';
+    presence.frequency.value = 4000;
+    presence.Q.value = 1.0;
+    presence.gain.value = 6;
+    var air = ctx.createBiquadFilter();
+    air.type = 'highshelf';
+    air.frequency.value = 6500;
+    air.gain.value = 8;
+    var compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -20;
+    compressor.knee.value = 18;
+    compressor.ratio.value = 3;
+    compressor.attack.value = 0.006;
+    compressor.release.value = 0.2;
+    var boldness = ctx.createGain();
+    boldness.gain.value = 1.15;
+    source.connect(bass);
+    bass.connect(presence);
+    presence.connect(air);
+    air.connect(compressor);
+    compressor.connect(boldness);
+    boldness.connect(ctx.destination);
+    return ctx;
+  }
+
+  function startNarration(){
+    var audio = document.getElementById('narration');
+    audio.preservesPitch = true;
+    audio.mozPreservesPitch = true;
+    audio.webkitPreservesPitch = true;
+    audio.playbackRate = 0.85; // slows the pace without lowering pitch, keeping the voice clearly female
+    var audioCtx = setupNarrationFilters(audio);
+    var skipBtn = document.getElementById('skipVoiceover');
+
+    function tryPlay(){
+      if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+      return audio.play();
+    }
+
+    audio.addEventListener('play', function(){ skipBtn.classList.add('visible'); });
+    audio.addEventListener('pause', function(){ skipBtn.classList.remove('visible'); });
+    audio.addEventListener('ended', function(){ skipBtn.classList.remove('visible'); });
+    skipBtn.addEventListener('click', function(){ audio.pause(); });
+
+    var playAttempt = tryPlay();
+    if(playAttempt && playAttempt.catch){
+      playAttempt.catch(function(){
+        var resumeOnGesture = function(){
+          tryPlay().catch(function(){});
+          window.removeEventListener('pointerdown', resumeOnGesture);
+          window.removeEventListener('keydown', resumeOnGesture);
+        };
+        window.addEventListener('pointerdown', resumeOnGesture, { once:true });
+        window.addEventListener('keydown', resumeOnGesture, { once:true });
+      });
+    }
+  }
+
+  // ==========================================================================
   // Entry point — starts automatically on page load, no click needed
   // ==========================================================================
   buildSite().then(function(){
     initScene();
     beginForming();
+    startNarration();
   });
 })();
 </script>
