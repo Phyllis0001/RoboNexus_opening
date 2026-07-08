@@ -1,0 +1,22 @@
+# Source/working files not needed to run the published site (also mostly
+# over GitHub's 100MB per-file limit)
+*.3dm
+*.3dmbak
+*.blend
+*.blend1
+*.glb
+site model_export.obj
+site model_export.mtl
+site-points.json
+site-solid-mesh.bin
+site-solid-mesh.json
+_build_solid_mesh.py
+*.toe
+TD course tutorial 005/
+Backup/
+0_assets/
+output/
+*.mp4
+
+# Tooling/local config
+.claude/

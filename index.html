@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RoboNexus — Digital Twin Scan</title>
+<style>
+  :root{
+    --bg:#000000;
+    --white:#eaf6ff;
+    --blue:#3fa9ff;
+    --cyan:#6fe9ff;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0; padding:0; width:100%; height:100%; background:#000;
+    font-family:'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+    overflow:hidden;
+  }
+  #scene-canvas{
+    position:fixed; inset:0; width:100%; height:100%; display:block;
+    z-index:1;
+  }
+
+  /* ---------- Start screen ---------- */
+  #startScreen{
+    position:fixed; inset:0; z-index:10;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:radial-gradient(ellipse at center, #050b12 0%, #000000 75%);
+    transition:opacity 1.1s ease, visibility 1.1s ease;
+  }
+  #startScreen.hidden{ opacity:0; visibility:hidden; pointer-events:none; }
+  .brand-eyebrow{
+    font-family:'Consolas','SFMono-Regular',monospace;
+    letter-spacing:4px; text-transform:uppercase;
+    font-size:12px; color:rgba(111,233,255,0.65); margin-bottom:14px;
+  }
+  .brand-title{
+    font-family:'Consolas','SFMono-Regular',monospace;
+    letter-spacing:6px; text-transform:uppercase;
+    font-size:clamp(28px,5vw,54px); color:var(--white); margin:0;
+    text-shadow:0 0 30px rgba(63,169,255,0.45);
+  }
+  .brand-sub{
+    font-family:'Consolas',monospace; font-size:12px; letter-spacing:2px;
+    text-transform:uppercase; color:rgba(234,246,255,0.45); margin-top:10px;
+  }
+  .start-btn{
+    margin-top:52px;
+    background:rgba(63,169,255,0.08);
+    border:1px solid rgba(111,233,255,0.55);
+    color:var(--cyan);
+    font-family:'Consolas',monospace;
+    font-size:14px; letter-spacing:3px; text-transform:uppercase;
+    padding:16px 46px;
+    cursor:pointer;
+    transition:background 0.2s, box-shadow 0.2s, transform 0.2s;
+    animation:pulseGlow 2.6s ease-in-out infinite;
+  }
+  .start-btn:hover{ background:rgba(63,169,255,0.2); transform:translateY(-1px); }
+  @keyframes pulseGlow{
+    0%,100%{ box-shadow:0 0 10px rgba(111,233,255,0.15); }
+    50%{ box-shadow:0 0 26px rgba(111,233,255,0.55); }
+  }
+  .corner{ position:absolute; width:34px; height:34px; border:1.5px solid rgba(111,233,255,0.4); }
+  .tl{ top:22px; left:22px; border-right:none; border-bottom:none; }
+  .tr{ top:22px; right:22px; border-left:none; border-bottom:none; }
+  .bl{ bottom:22px; left:22px; border-right:none; border-top:none; }
+  .br{ bottom:22px; right:22px; border-left:none; border-top:none; }
+
+  /* ---------- In-scan HUD ---------- */
+  #sceneHud{
+    position:fixed; inset:0; z-index:5; pointer-events:none;
+    padding:28px; opacity:0; transition:opacity 0.8s ease;
+  }
+  #sceneHud.visible{ opacity:1; }
+  #sceneHud .label-top{
+    position:absolute; top:34px; left:70px;
+    font-family:'Consolas',monospace; font-size:12px; letter-spacing:2px;
+    text-transform:uppercase; color:var(--cyan); opacity:0.85;
+  }
+  #sceneHud .label-top small{
+    display:block; font-size:10px; color:rgba(234,246,255,0.5); letter-spacing:1px; margin-top:4px;
+  }
+  #sceneHud .particle-readout{
+    position:absolute; bottom:34px; left:70px;
+    font-family:'Consolas',monospace; font-size:11px; letter-spacing:1px;
+    color:rgba(234,246,255,0.6); text-transform:uppercase;
+  }
+  #skipHint{
+    position:absolute; bottom:34px; right:70px;
+    font-family:'Consolas',monospace; font-size:11px; letter-spacing:1px;
+    color:rgba(234,246,255,0.35); text-transform:uppercase;
+    transition:opacity 0.6s ease;
+  }
+  #skipHint.hidden{ opacity:0; }
+</style>
+</head>
+<body>
+
+<canvas id="scene-canvas"></canvas>
+
+<div id="sceneHud">
+  <div class="label-top">SITE SCAN // DIGITAL TWIN
+    <small id="labelSmall">Aerial reconstruction · point cloud</small>
+  </div>
+  <div class="particle-readout">Particles: <span id="particleCount">0</span></div>
+  <div id="skipHint">Tap anywhere to skip</div>
+</div>
+
+<div id="startScreen">
+  <div class="corner tl"></div>
+  <div class="corner tr"></div>
+  <div class="corner bl"></div>
+  <div class="corner br"></div>
+  <div class="brand-eyebrow">Exhibition Preview</div>
+  <h1 class="brand-title">RoboNexus</h1>
+  <div class="brand-sub">Digital twin · point cloud site scan</div>
+  <button class="start-btn" id="startBtn">Start</button>
+</div>
+
+<!--
+  This page pulls three.js + OBJLoader as ES modules from a CDN (pinned to
+  0.160.0) rather than the local vendor/three.min.js UMD build, because
+  OBJLoader is only distributed as an ES module addon. Requires network
+  access at runtime — if this needs to run fully offline (e.g. at the
+  exhibition with no wifi), these three files need to be vendored locally
+  instead of loaded from unpkg.
+-->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+
+// ==========================================================================
+// Config
+// ==========================================================================
+// Float32, stride 12: sx,sy,sz,tx,ty,tz,r,g,b,size,revealAt,settleDur — only
+// tx,ty,tz / r,g,b / size are used; the sx/sy/sz/revealAt/settleDur fields
+// are legacy and unused now that formation is driven entirely by uFormTrigger.
+var DATA_URL = 'site-points-forming.bin?v=2';
+
+var FLY_DURATION = 5.5;         // seconds particles fly/scatter before slowly forming the site
+var MIN_FLY_BEFORE_SKIP = 1.5;  // seconds that must pass before a tap is allowed to skip the flying — guards against an accidental early tap (e.g. a stray second click right after Start) cutting the flying phase short
+var RING_SWEEP_TIME = 3.2;      // seconds for one loop of the ambient scan ring while flying
+var SWEEP_SPAN = 3.0;           // seconds over which the formation sweeps outward from the center
+var FORM_DUR_MIN = 2.2, FORM_DUR_MAX = 3.6; // seconds each particle takes to ease into place, once its turn comes
+var TOTAL_FORM_TIME = SWEEP_SPAN + FORM_DUR_MAX; // worst-case total time for the whole site to finish assembling
+var DOLLY_DURATION = TOTAL_FORM_TIME; // camera settles into the close orbit over the same span as the formation
+
+var POINT_SIZE_SCALE = 620; // px-world constant driving on-screen point size (was 260 — bumped so the cloud reads as dense/solid rather than sparse)
+
+// final steady-state orbit once the site has formed (matches the previous explorable view)
+var ORBIT_RADIUS_MIN = 16, ORBIT_RADIUS_MAX = 26, ORBIT_RADIUS_PERIOD = 42;
+var ORBIT_HEIGHT_MIN = 5,  ORBIT_HEIGHT_MAX = 12, ORBIT_HEIGHT_PERIOD = 65;
+
+// realistic-model reveal: once the particle site has held fully formed for
+// REVEAL_HOLD seconds (and the model has finished loading in the background),
+// it crossfades into a lit, textured render of the actual Rhino/Blender
+// masterplan model over REVEAL_FADE seconds.
+var REVEAL_HOLD = 2.5;
+var REVEAL_FADE = 3.2;
+
+// The Rhino export is Z-up and in real-world meters (~388 x 262m), while the
+// particle cloud lives in a small Y-up plan-scale space (~27 x 13 units)
+// centered on the origin. There's no known exact transform between the two,
+// so the model group is auto-scaled/centered to match the particle cloud's
+// measured footprint (computed in buildSite() below) rather than assuming
+// a fixed conversion.
+var MODEL_FILES = [
+  'site_0.obj', 'site_Layer 01.obj', 'site_Layer2.obj',
+  'site_KULTURE HOUSE.obj', 'site_KUNST MUSEUM.obj', 'site_commercial.obj'
+];
+// Colors below are picked from an actual aerial photo of the real site (a
+// still frame from the reference video) rather than guessed: a weathered
+// teal/patina roof on the museum-shaped building, off-white flat roofs,
+// muted brownish-red pitched roofs, and warm-grey pavement, all under soft
+// overcast daylight (see the lighting setup further down).
+var MODEL_MATERIALS = {
+  'site_0.obj':             { color:0xb0a99a, roughness:0.95, metalness:0.0  }, // ground-level clutter/paving detail — warm-grey pavement
+  'site_Layer 01.obj':      { color:0xe8e4d8, roughness:0.75, metalness:0.02 }, // main building massing — off-white flat roofs/render
+  'site_Layer2.obj':        { color:0x6b5147, roughness:0.8,  metalness:0.0  }, // secondary volumes/roofing — muted brick/tile brown
+  'site_KULTURE HOUSE.obj': { color:0x9c9184, roughness:0.75, metalness:0.02 }, // cultural building — neutral warm grey
+  'site_KUNST MUSEUM.obj':  { color:0x7fa89a, roughness:0.55, metalness:0.12 }, // museum — weathered teal/patina roof
+  'site_commercial.obj':    { color:0x8fa4ad, roughness:0.2,  metalness:0.3  }  // commercial — muted glazed facade
+};
+var DEFAULT_MODEL_MATERIAL = { color:0xb0a99a, roughness:0.8, metalness:0.02 };
+
+var SKY_COLOR = new THREE.Color(0xb8c4c9); // muted grey-blue overcast sky, matched to the reference photo's flat daylight
+var FOG_COLOR = new THREE.Color(0xaab3b6);
+var BLACK_COLOR = new THREE.Color(0x000000);
+
+var particleData = null;
+var particleCount = 0;
+var maxRadial = 1;
+var particleBoundsMinX = 0, particleBoundsMaxX = 0, particleBoundsMinZ = 0, particleBoundsMaxZ = 0;
+
+function buildSite(){
+  return fetch(DATA_URL).then(function(resp){ return resp.arrayBuffer(); }).then(function(buf){
+    particleData = new Float32Array(buf);
+    particleCount = particleData.length / 12;
+    document.getElementById('particleCount').textContent = particleCount.toLocaleString();
+
+    // one-time scan (not per-frame) to find the site's plan radius/footprint,
+    // so the ambient scan ring and the realistic-model alignment don't need
+    // any hardcoded dimensions.
+    var mr = 0;
+    var minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for(var i=0;i<particleCount;i++){
+      var o = i*12;
+      var tx = particleData[o+3], tz = particleData[o+5];
+      var r = Math.sqrt(tx*tx + tz*tz);
+      if(r > mr) mr = r;
+      if(tx < minX) minX = tx; if(tx > maxX) maxX = tx;
+      if(tz < minZ) minZ = tz; if(tz > maxZ) maxZ = tz;
+    }
+    maxRadial = mr;
+    particleBoundsMinX = minX; particleBoundsMaxX = maxX;
+    particleBoundsMinZ = minZ; particleBoundsMaxZ = maxZ;
+  });
+}
+
+// ==========================================================================
+// Three.js scene
+// ==========================================================================
+var renderer, scene, camera, points, ringMesh, clock;
+var ground, hemiLight, sunLight;
+var realGroup = null, realGroupReady = false;
+var initialized = false;
+
+function makeSprite(){
+  var c = document.createElement('canvas');
+  c.width = c.height = 64;
+  var ctx = c.getContext('2d');
+  ctx.save();
+  ctx.translate(32,32);
+  ctx.scale(1, 0.32);
+  ctx.translate(-32,-32);
+  var g = ctx.createLinearGradient(4,32, 58,32);
+  g.addColorStop(0.0,  'rgba(255,255,255,0)');
+  g.addColorStop(0.30, 'rgba(255,255,255,0.35)');
+  g.addColorStop(0.62, 'rgba(255,255,255,0.85)');
+  g.addColorStop(1.0,  'rgba(255,255,255,1)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.ellipse(32,32,28,28,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+  var tex = new THREE.CanvasTexture(c);
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  return tex;
+}
+
+function makeRingTexture(){
+  var c = document.createElement('canvas');
+  c.width = c.height = 256;
+  var ctx = c.getContext('2d');
+  var g = ctx.createRadialGradient(128,128,90,128,128,128);
+  g.addColorStop(0,   'rgba(111,233,255,0)');
+  g.addColorStop(0.75,'rgba(111,233,255,0.55)');
+  g.addColorStop(0.9, 'rgba(234,246,255,0.9)');
+  g.addColorStop(1,   'rgba(111,233,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,256,256);
+  return new THREE.CanvasTexture(c);
+}
+
+// GPU-driven: particles fly in a wide chaotic scatter until uFormTrigger is
+// set (the moment the state machine decides to start forming), then each
+// particle eases from its scattered/flying position into its actual site
+// position. The delay before a particle starts easing in is driven by its
+// planar distance from the center (rNorm), so the site assembles slowly as
+// an outward ripple rather than snapping into place all at once.
+// uFormTrigger < 0 means "not yet triggered — keep flying". uFadeOut fades
+// the whole point cloud out once the realistic model reveal begins.
+var vertexShader = [
+  'attribute vec3 aColor;',
+  'attribute float aSize;',
+  'uniform float uTime;',
+  'uniform float uFormTrigger;',
+  'uniform float uMaxRadial;',
+  'varying vec3 vColor;',
+  'varying float vIntensity;',
+  'varying float vStreakAngle;',
+  'float hash13(vec3 p){',
+  '  p = fract(p * 0.3183099 + 0.1);',
+  '  p *= 17.0;',
+  '  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));',
+  '}',
+  'void main(){',
+  '  vColor = aColor;',
+  '  float h = hash13(position.xyz);',
+  '  float hx = hash13(position.xyz + 11.0);',
+  '  float hy = hash13(position.xyz + 23.0);',
+  '  float hz = hash13(position.xyz + 41.0);',
+  '  float phase = h * 6.28318;',
+  '  float phA1 = hx * 6.28318;',
+  '  float phA2 = hy * 6.28318;',
+  '  float speed = 0.5 + h * 1.1;',
+  '  float twinkle = 1.05 + 0.35 * sin(uTime * speed + phase);',
+  '  float scatterAngle = h * 6.28318;',
+  '  float scatterRad = 16.0 + hx * 34.0;',
+  '  vec3 scatterPos = vec3(cos(scatterAngle)*scatterRad, 3.0 + hy * 26.0, sin(scatterAngle)*scatterRad);',
+  '  float flowSpeed1 = 0.35 + hx * 0.55;',
+  '  float flowSpeed2 = 0.28 + hy * 0.5;',
+  '  float flowSpeed3 = 0.4 + hz * 0.55;',
+  '  float flightAmp = 9.0;',
+  '  vec3 flight = vec3(',
+  '    sin(uTime * flowSpeed1 + phA1) * flightAmp + sin(uTime * flowSpeed3 * 0.6 + phA2) * flightAmp * 0.4,',
+  '    cos(uTime * flowSpeed2 * 1.1 + phA2) * flightAmp * 0.6,',
+  '    cos(uTime * flowSpeed1 * 0.8 + phA1 * 1.3) * flightAmp + sin(uTime * flowSpeed3 + phA1) * flightAmp * 0.4',
+  '  );',
+  '  float planarR = length(position.xz);',
+  '  float rNorm = clamp(planarR / max(uMaxRadial, 0.001), 0.0, 1.0);',
+  '  float formDelay = rNorm * ' + SWEEP_SPAN.toFixed(2) + ' + hz * 0.4;',
+  '  float formDur = ' + FORM_DUR_MIN.toFixed(2) + ' + hx * ' + (FORM_DUR_MAX-FORM_DUR_MIN).toFixed(2) + ';',
+  '  float localT = (uFormTrigger < 0.0) ? -1.0 : (uTime - uFormTrigger - formDelay);',
+  '  vec3 basePos;',
+  '  float intensity;',
+  '  if(localT <= 0.0){',
+  '    basePos = scatterPos + flight;',
+  '    intensity = 0.4 + 0.2 * max(0.0, sin(uTime * speed + phase));',
+  '  } else {',
+  '    float tt = clamp(localT / formDur, 0.0, 1.0);',
+  '    float e = 1.0 - pow(1.0 - tt, 3.0);',
+  '    basePos = mix(scatterPos, position, e) + flight * (1.0 - e);',
+  '    intensity = (0.4 + 0.6 * e) * twinkle;',
+  '  }',
+  '  vec2 windDir = normalize(vec2(1.0, 0.4));',
+  '  vec2 perpDir = vec2(-windDir.y, windDir.x);',
+  '  float gust = 0.6 + 0.4 * sin(uTime * 0.15);',
+  '  float leanAmp = 0.05;',
+  '  float lean = sin(dot(position.xz, windDir) * 0.35 - uTime * 0.6) * leanAmp * gust;',
+  '  float freqA1 = 2.0 + hx * 2.2;',
+  '  float freqA2 = 3.4 + hy * 2.6;',
+  '  float flutterAlong = sin(uTime * freqA1 + phA1) * 0.045 * (0.5 + 0.5 * gust);',
+  '  float flutterAcross = (sin(uTime * freqA2 + phA2) + 0.5 * sin(uTime * freqA2 * 2.1 + phA2 * 1.6)) * 0.075 * (0.5 + 0.5 * gust);',
+  '  float flutterUp = sin(uTime * (freqA1 * 1.3) + phA2) * 0.03 * (0.5 + 0.5 * gust);',
+  '  vec3 windDir3 = vec3(windDir.x, 0.0, windDir.y);',
+  '  vec3 perpDir3 = vec3(perpDir.x, 0.0, perpDir.y);',
+  '  vec3 drift = windDir3 * (lean + flutterAlong) + perpDir3 * flutterAcross + vec3(0.0, flutterUp, 0.0);',
+  '  vec3 driftedPosition = basePos + drift;',
+  '  vec4 mvPosition = modelViewMatrix * vec4(driftedPosition, 1.0);',
+  '  vec3 flutterDir3 = drift;',
+  '  float flutterLen = length(flutterDir3);',
+  '  flutterDir3 = flutterLen > 0.0001 ? flutterDir3 / flutterLen : windDir3;',
+  '  vec4 mvPositionB = modelViewMatrix * vec4(driftedPosition + flutterDir3 * 0.5, 1.0);',
+  '  vec4 clipA = projectionMatrix * mvPosition;',
+  '  vec4 clipB = projectionMatrix * mvPositionB;',
+  '  vec2 ndcA = clipA.xy / clipA.w;',
+  '  vec2 ndcB = clipB.xy / clipB.w;',
+  '  vStreakAngle = atan(ndcB.y - ndcA.y, ndcB.x - ndcA.x);',
+  '  vIntensity = intensity;',
+  '  gl_PointSize = aSize * (' + POINT_SIZE_SCALE.toFixed(1) + ' / -mvPosition.z);',
+  '  gl_Position = projectionMatrix * mvPosition;',
+  '}'
+].join('\n');
+
+var fragmentShader = [
+  'uniform sampler2D uMap;',
+  'uniform float uFadeOut;',
+  'varying vec3 vColor;',
+  'varying float vIntensity;',
+  'varying float vStreakAngle;',
+  'void main(){',
+  '  vec2 centered = gl_PointCoord - vec2(0.5);',
+  '  float ca = cos(-vStreakAngle);',
+  '  float sa = sin(-vStreakAngle);',
+  '  vec2 rotated = vec2(ca*centered.x - sa*centered.y, sa*centered.x + ca*centered.y) + vec2(0.5);',
+  '  vec4 tex = texture2D(uMap, rotated);',
+  '  float i = vIntensity * uFadeOut;',
+  '  gl_FragColor = vec4(vColor * i, tex.r * i);',
+  '  gl_FragColor.rgb *= tex.r;',
+  '}'
+].join('\n');
+
+function loadObjectAsync(loader, url){
+  return new Promise(function(resolve, reject){
+    loader.load(url, resolve, undefined, reject);
+  });
+}
+
+// Loads every layer file, gives each a curated PBR material (the source .mtl
+// only carries flat Rhino preview colors, not real materials), then scales
+// and centers the combined group to match the particle cloud's measured
+// footprint so the realistic reveal appears where the point cloud is.
+function loadRealisticModel(){
+  var loader = new OBJLoader();
+  return Promise.all(MODEL_FILES.map(function(name){
+    return loadObjectAsync(loader, encodeURI(name)).then(function(obj){
+      var cfg = MODEL_MATERIALS[name] || DEFAULT_MODEL_MATERIAL;
+      obj.traverse(function(child){
+        if(child.isMesh){
+          child.geometry.computeVertexNormals();
+          child.material = new THREE.MeshStandardMaterial({
+            color: cfg.color, roughness: cfg.roughness, metalness: cfg.metalness,
+            transparent: true, opacity: 0
+          });
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
+      return obj;
+    });
+  })).then(function(objects){
+    var group = new THREE.Group();
+    objects.forEach(function(obj){ group.add(obj); });
+    group.rotation.x = -Math.PI/2; // Rhino Z-up -> three.js Y-up
+    group.updateMatrixWorld(true);
+
+    var box = new THREE.Box3().setFromObject(group);
+    var size = box.getSize(new THREE.Vector3());
+
+    var targetWidth = particleBoundsMaxX - particleBoundsMinX;
+    var targetDepth = particleBoundsMaxZ - particleBoundsMinZ;
+    var targetCenterX = (particleBoundsMaxX + particleBoundsMinX) / 2;
+    var targetCenterZ = (particleBoundsMaxZ + particleBoundsMinZ) / 2;
+    var scaleFactor = Math.min(targetWidth / size.x, targetDepth / size.z);
+
+    group.scale.setScalar(scaleFactor);
+    group.updateMatrixWorld(true);
+
+    var scaledBox = new THREE.Box3().setFromObject(group);
+    var scaledCenter = scaledBox.getCenter(new THREE.Vector3());
+
+    group.position.x = targetCenterX - scaledCenter.x;
+    group.position.z = targetCenterZ - scaledCenter.z;
+    group.position.y = -scaledBox.min.y;
+    group.updateMatrixWorld(true);
+
+    realGroup = group;
+    scene.add(realGroup);
+    realGroupReady = true;
+  });
+}
+
+function initScene(){
+  if(initialized) return;
+  initialized = true;
+
+  var canvas = document.getElementById('scene-canvas');
+  renderer = new THREE.WebGLRenderer({ canvas:canvas, antialias:true, alpha:false });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setClearColor(0x000000, 1);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x000000); // starts black to match the particle intro; lerped to sky color during the reveal
+  scene.fog = new THREE.Fog(0x000000, 20, 90);
+  camera = new THREE.PerspectiveCamera(48, window.innerWidth/window.innerHeight, 0.1, 200);
+
+  var interleaved = new THREE.InterleavedBuffer(particleData, 12);
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.InterleavedBufferAttribute(interleaved, 3, 3));
+  geo.setAttribute('aColor',   new THREE.InterleavedBufferAttribute(interleaved, 3, 6));
+  geo.setAttribute('aSize',    new THREE.InterleavedBufferAttribute(interleaved, 1, 9));
+
+  var mat = new THREE.ShaderMaterial({
+    uniforms:{
+      uMap:{ value: makeSprite() },
+      uTime:{ value: 0 },
+      uFormTrigger:{ value: -1 },
+      uMaxRadial:{ value: maxRadial },
+      uFadeOut:{ value: 1 }
+    },
+    vertexShader: vertexShader,
+    fragmentShader: fragmentShader,
+    transparent:true,
+    depthWrite:false,
+    depthTest:true,
+    blending:THREE.AdditiveBlending
+  });
+
+  points = new THREE.Points(geo, mat);
+  scene.add(points);
+
+  var ringGeo = new THREE.RingGeometry(0.94, 1, 96);
+  var ringMat = new THREE.MeshBasicMaterial({
+    map: makeRingTexture(), transparent:true, blending:THREE.AdditiveBlending,
+    depthWrite:false, side:THREE.DoubleSide
+  });
+  ringMesh = new THREE.Mesh(ringGeo, ringMat);
+  ringMesh.rotation.x = -Math.PI/2;
+  scene.add(ringMesh);
+
+  // ground plane + lighting for the realistic reveal — added now (cheap,
+  // procedural) but kept invisible/off until the reveal fades them in.
+  // Colors/intensities are matched to a real aerial photo of the site: warm
+  // grey pavement (mostly hardscape, not lawn) under soft overcast daylight.
+  var groundMat = new THREE.MeshStandardMaterial({
+    color:0x9e9686, roughness:1, metalness:0, transparent:true, opacity:0
+  });
+  ground = new THREE.Mesh(new THREE.PlaneGeometry(200,200), groundMat);
+  ground.rotation.x = -Math.PI/2;
+  ground.position.y = -0.02;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  hemiLight = new THREE.HemisphereLight(0xb8c4c9, 0x4a4030, 0);
+  scene.add(hemiLight);
+
+  sunLight = new THREE.DirectionalLight(0xf3f1ea, 0);
+  sunLight.position.set(24, 34, 16);
+  sunLight.target.position.set(0, 2, 0);
+  sunLight.castShadow = true;
+  sunLight.shadow.mapSize.set(2048, 2048);
+  sunLight.shadow.camera.left = -30;
+  sunLight.shadow.camera.right = 30;
+  sunLight.shadow.camera.top = 30;
+  sunLight.shadow.camera.bottom = -30;
+  sunLight.shadow.camera.near = 1;
+  sunLight.shadow.camera.far = 100;
+  scene.add(sunLight);
+  scene.add(sunLight.target);
+
+  // kick off the (large) realistic model load now, in parallel with the
+  // flying/forming intro, so it's ready by the time the reveal wants it
+  loadRealisticModel().catch(function(err){
+    console.error('Realistic model failed to load — reveal will stay pending indefinitely:', err);
+  });
+
+  clock = new THREE.Clock();
+  window.addEventListener('resize', onResize);
+  window.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('keydown', onKeyDown);
+
+  requestAnimationFrame(animate);
+}
+
+function onResize(){
+  if(!renderer) return;
+  camera.aspect = window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function onKeyDown(e){
+  if(e.key.toLowerCase() === 'r'){ window.location.reload(); }
+}
+
+// ==========================================================================
+// Timeline / state machine — particles fly in a wide scatter, then slowly
+// assemble into the actual masterplan, then crossfade into a realistic,
+// lit render of the real Rhino/Blender model — all on this same page.
+// ==========================================================================
+var phase = 'idle'; // idle -> flying -> formed
+var phaseStart = 0;
+var formTriggerTime = null;
+var realRevealStart = null;
+var revealFinalized = false;
+
+function beginForming(){
+  phase = 'flying';
+  phaseStart = clock.getElapsedTime();
+  formTriggerTime = null;
+  document.getElementById('sceneHud').classList.add('visible');
+}
+
+function triggerFormation(t){
+  if(formTriggerTime !== null) return;
+  formTriggerTime = t;
+  phase = 'formed';
+  document.getElementById('skipHint').classList.add('hidden');
+}
+
+function tryStartReveal(t){
+  if(realRevealStart !== null || !realGroupReady) return;
+  realRevealStart = t;
+}
+
+function onPointerDown(){
+  var now = clock.getElapsedTime();
+  if(phase === 'flying' && (now - phaseStart) >= MIN_FLY_BEFORE_SKIP){
+    triggerFormation(now);
+    return;
+  }
+  if(phase === 'formed' && formTriggerTime !== null && (now - formTriggerTime) > TOTAL_FORM_TIME){
+    tryStartReveal(now);
+  }
+}
+
+function easeOutCubic(t){ return 1 - Math.pow(1-t, 3); }
+
+function animate(){
+  requestAnimationFrame(animate);
+  var t = clock.getElapsedTime();
+  var elapsed = phase === 'idle' ? 0 : (t - phaseStart);
+
+  if(points){
+    var u = points.material.uniforms;
+    u.uTime.value = t;
+    u.uFormTrigger.value = formTriggerTime === null ? -1 : formTriggerTime;
+  }
+
+  if(phase === 'flying' && elapsed > FLY_DURATION){
+    triggerFormation(t);
+  }
+
+  if(formTriggerTime !== null && realRevealStart === null && (t - formTriggerTime) > (TOTAL_FORM_TIME + REVEAL_HOLD)){
+    tryStartReveal(t);
+  }
+
+  // ---- ambient scan ring: loops while flying, fades once the site starts forming ----
+  if(ringMesh){
+    if(formTriggerTime === null){
+      var sweepT = (elapsed % RING_SWEEP_TIME) / RING_SWEEP_TIME;
+      var rWorld = sweepT * maxRadial * 1.2;
+      ringMesh.scale.set(rWorld, rWorld, rWorld);
+      ringMesh.material.opacity = 0.85 * (1 - sweepT);
+      ringMesh.visible = true;
+    } else {
+      var fadeT = Math.min(1, (t - formTriggerTime) / TOTAL_FORM_TIME);
+      ringMesh.material.opacity = 0.85 * (1 - fadeT);
+      ringMesh.visible = fadeT < 1;
+    }
+  }
+
+  // ---- realistic-model reveal: crossfade the point cloud out and the lit model in ----
+  if(realRevealStart !== null){
+    var revealT = Math.min(1, (t - realRevealStart) / REVEAL_FADE);
+    if(points) points.material.uniforms.uFadeOut.value = 1 - revealT;
+    if(ringMesh) ringMesh.visible = false;
+
+    scene.background.lerpColors(BLACK_COLOR, SKY_COLOR, revealT);
+    scene.fog.color.lerpColors(BLACK_COLOR, FOG_COLOR, revealT);
+    hemiLight.intensity = 1.15 * revealT;
+    sunLight.intensity = 1.0 * revealT;
+    ground.material.opacity = revealT;
+    if(realGroup){
+      realGroup.traverse(function(child){
+        if(child.isMesh) child.material.opacity = revealT;
+      });
+    }
+
+    if(revealT >= 1 && !revealFinalized){
+      revealFinalized = true;
+      points.visible = false;
+      ground.material.transparent = false;
+      if(realGroup){
+        realGroup.traverse(function(child){
+          if(child.isMesh) child.material.transparent = false;
+        });
+      }
+      document.getElementById('labelSmall').textContent = 'Realistic render · masterplan visualization';
+    }
+  }
+
+  // ---- camera: wide orbit while flying, cinematically dollies into the close
+  //      steady-state orbit as the site snaps into place, then keeps orbiting
+  //      through the realistic reveal ----
+  var dollyT = formTriggerTime === null ? 0 : Math.min(1, (t - formTriggerTime) / DOLLY_DURATION);
+  var ease = easeOutCubic(dollyT);
+
+  var radiusPhase = (Math.sin(t * (Math.PI*2/ORBIT_RADIUS_PERIOD)) + 1) / 2;
+  var heightPhase = (Math.sin(t * (Math.PI*2/ORBIT_HEIGHT_PERIOD) + 1.7) + 1) / 2;
+  var finalRadius = ORBIT_RADIUS_MIN + (ORBIT_RADIUS_MAX-ORBIT_RADIUS_MIN) * radiusPhase;
+  var finalHeight = ORBIT_HEIGHT_MIN + (ORBIT_HEIGHT_MAX-ORBIT_HEIGHT_MIN) * heightPhase;
+
+  var camAngleSpeed = 0.07 - (0.07-0.045) * ease;
+  var camAngle = t * camAngleSpeed;
+  var camRadius = 60 + (finalRadius-60) * ease;
+  var camHeight = 32 + (finalHeight-32) * ease;
+  var lookHeight = 5 + (0.5-5) * ease;
+
+  if(camera){
+    camera.position.set(Math.cos(camAngle)*camRadius, camHeight, Math.sin(camAngle)*camRadius);
+    camera.lookAt(0, lookHeight, 0);
+  }
+
+  if(renderer && scene && camera) renderer.render(scene, camera);
+}
+
+// ==========================================================================
+// Entry point
+// ==========================================================================
+document.getElementById('startBtn').addEventListener('click', function(){
+  document.getElementById('startScreen').classList.add('hidden');
+  buildSite().then(function(){
+    initScene();
+    beginForming();
+  });
+});
+</script>
+
+</body>
+</html>
