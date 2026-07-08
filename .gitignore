@@ -17,6 +17,7 @@ Backup/
 0_assets/
 output/
 *.mp4
+!rotation.mp4
 
 # Tooling/local config
 .claude/
